@@ -5,7 +5,7 @@ TUS_ENDPOINT = "http://localhost:8080/api/v1/uploads/"
 FILE_PATH = "test.mp4"
 
 HEADERS = {
-    "X-API-KEY": "fe76674515d38732667edc673dc414ffe54cf997b8f5c74d5843ca4f2078ea7a",
+    "X-API-KEY": "5cf74fb0ea2ec521d85c36e0e4468749d6aaee5b8f5ff5c35c0f9a3260a96a60",
     "X-Username": "user123444",
 }
 

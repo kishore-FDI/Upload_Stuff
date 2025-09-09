@@ -1,10 +1,13 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,6 +20,20 @@ import (
 	tusd "github.com/tus/tusd/pkg/handler"
 	"github.com/tus/tusd/pkg/memorylocker"
 )
+
+// read tusd .info file for metadata
+func readTusInfo(id string) (*tusd.FileInfo, error) {
+	infoPath := filepath.Join("./uploads_data", id+".info")
+	data, err := os.ReadFile(infoPath)
+	if err != nil {
+		return nil, err
+	}
+	var info tusd.FileInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
 
 func SetupRoutes(r *gin.Engine, cfg *config.Config) {
 	r.Use(corsMiddleware())
@@ -32,16 +49,13 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config) {
 			})
 		})
 
-		// Initialize TUS handler
 		tusHandler, err := initTusHandler(cfg)
 		if err != nil {
 			log.Fatalf("failed to initialize tus handler: %v", err)
 		}
 
-		// TUS upload endpoints
 		uploads := v1.Group("/uploads")
 		{
-			// TUS protocol endpoints
 			uploads.POST("/", gin.WrapF(tusHandler.PostFile))
 			uploads.HEAD("/:id", gin.WrapF(tusHandler.HeadFile))
 			uploads.PATCH("/:id", gin.WrapF(tusHandler.PatchFile))
@@ -49,13 +63,11 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config) {
 			uploads.DELETE("/:id", gin.WrapF(tusHandler.DelFile))
 		}
 
-		// Metadata/token management endpoints
 		uploadsMeta := v1.Group("/uploads/meta")
 		uploadsMeta.POST("/", middleware.RateLimiter(db.RDB, 10, time.Minute, middleware.UserRateLimit{}), uploadHandler)
 		uploadsMeta.PUT("/:token", resumeUploadHandler)
 		uploadsMeta.GET("/:token/status", statusHandler)
 
-		// Business endpoints for managing uploads
 		business := v1.Group("/business")
 		business.Use(middleware.RateLimiter(db.RDB, 10, time.Minute, middleware.BusinessRateLimit{}))
 		{
@@ -109,10 +121,9 @@ func healthCheck(c *gin.Context) {
 }
 
 func uploadHandler(c *gin.Context) {
-	// Get business API key and username from headers
 	apiKey := c.GetHeader("X-API-KEY")
 	username := c.GetHeader("X-Username")
-	
+
 	if apiKey == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing X-API-KEY header"})
 		return
@@ -122,21 +133,18 @@ func uploadHandler(c *gin.Context) {
 		return
 	}
 
-	// Validate business
 	business, err := db.GetBusinessByAPIKey(apiKey)
 	if err != nil || business == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid api key"})
 		return
 	}
 
-	// Generate upload token
 	token, err := db.GenerateAPIKey()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
 		return
 	}
 
-	// Store upload data directly with token as key
 	uploadKey := "upload:" + token
 	fields := map[string]interface{}{
 		"business_id": business.ID,
@@ -149,7 +157,6 @@ func uploadHandler(c *gin.Context) {
 		return
 	}
 
-	// Store token metadata
 	tokenKey := "upload_token:" + token
 	tokenFields := map[string]interface{}{
 		"business_id": business.ID,
@@ -163,7 +170,6 @@ func uploadHandler(c *gin.Context) {
 		return
 	}
 
-	// Set token expiration (15 minutes)
 	if err := db.RDB.Expire(db.Ctx, tokenKey, 15*time.Minute).Err(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set token expiration"})
 		return
@@ -182,7 +188,6 @@ func resumeUploadHandler(c *gin.Context) {
 		return
 	}
 
-	// Check if upload exists
 	uploadKey := "upload:" + token
 	uploadData, err := db.RDB.HGetAll(db.Ctx, uploadKey).Result()
 	if err != nil || len(uploadData) == 0 {
@@ -190,7 +195,6 @@ func resumeUploadHandler(c *gin.Context) {
 		return
 	}
 
-	// Check if upload is in progress
 	if status, ok := uploadData["status"]; !ok || status != "in_progress" {
 		c.JSON(http.StatusConflict, gin.H{"error": "upload not in progress"})
 		return
@@ -208,7 +212,32 @@ func statusHandler(c *gin.Context) {
 }
 
 func downloadHandler(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"message": "Download handler not implemented yet"})
+	id := c.Param("id")
+	filePath := "./uploads_data/" + id
+
+	if _, err := os.Stat(filePath); err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot access file"})
+		}
+		return
+	}
+
+	info, err := readTusInfo(id)
+	filename := id
+	if err == nil {
+		if fn, ok := info.MetaData["filename"]; ok && fn != "" {
+			filename = fn
+			realPath := filepath.Join("./uploads_data", filename)
+			if _, err := os.Stat(realPath); err == nil {
+				filePath = realPath
+			}
+		}
+	}
+
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	c.File(filePath)
 }
 
 func deleteHandler(c *gin.Context) {
@@ -224,24 +253,19 @@ func resultHandler(c *gin.Context) {
 }
 
 func listBusinessUploadsHandler(c *gin.Context) {
-	// Get business API key from header
 	apiKey := c.GetHeader("X-API-KEY")
 	if apiKey == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing X-API-KEY header"})
 		return
 	}
 
-	// Validate business
 	business, err := db.GetBusinessByAPIKey(apiKey)
 	if err != nil || business == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid api key"})
 		return
 	}
 
-	// Get optional username filter
 	username := c.Query("username")
-
-	// Scan for uploads belonging to this business
 	pattern := "upload:*"
 	keys, err := db.RDB.Keys(db.Ctx, pattern).Result()
 	if err != nil {
@@ -255,18 +279,13 @@ func listBusinessUploadsHandler(c *gin.Context) {
 		if err != nil || len(uploadData) == 0 {
 			continue
 		}
-
-		// Filter by business
 		if uploadData["business_id"] != fmt.Sprintf("%d", business.ID) {
 			continue
 		}
-
-		// Filter by username if provided
 		if username != "" && uploadData["username"] != username {
 			continue
 		}
-
-		token := key[7:] // Remove "upload:" prefix
+		token := key[7:]
 		uploads = append(uploads, gin.H{
 			"token":      token,
 			"username":   uploadData["username"],
@@ -282,18 +301,14 @@ func listBusinessUploadsHandler(c *gin.Context) {
 	})
 }
 
-// initTusHandler initializes tusd with a disk filestore and hooks for validation
 func initTusHandler(_ *config.Config) (*tusd.UnroutedHandler, error) {
-	// ensure upload directory exists
 	uploadDir := "./uploads_data"
 	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create upload dir: %w", err)
 	}
 
-	// filestore: writes to local disk. Replace with S3 store for production.
 	store := filestore.New(uploadDir)
 	locker := memorylocker.New()
-
 	composer := tusd.NewStoreComposer()
 	store.UseIn(composer)
 	locker.UseIn(composer)
@@ -305,11 +320,10 @@ func initTusHandler(_ *config.Config) (*tusd.UnroutedHandler, error) {
 		DisableTermination:      false,
 		NotifyCreatedUploads:    true,
 		NotifyCompleteUploads:   true,
-		NotifyUploadProgress:    true, // enable progress notifications
+		NotifyUploadProgress:    true,
 		RespectForwardedHeaders: true,
 	}
 
-	// Validate API key and username before creating uploads.
 	config.PreUploadCreateCallback = func(hook tusd.HookEvent) error {
 		h := hook.HTTPRequest
 		apiKey := h.Header.Get("X-API-KEY")
@@ -317,18 +331,15 @@ func initTusHandler(_ *config.Config) (*tusd.UnroutedHandler, error) {
 		if apiKey == "" || username == "" {
 			return tusd.NewHTTPError(fmt.Errorf("missing auth headers"), http.StatusBadRequest)
 		}
-
 		business, err := db.GetBusinessByAPIKey(apiKey)
 		if err != nil || business == nil {
 			return tusd.NewHTTPError(fmt.Errorf("invalid api key"), http.StatusUnauthorized)
 		}
-
 		if hook.Upload.MetaData == nil {
 			hook.Upload.MetaData = make(map[string]string)
 		}
 		hook.Upload.MetaData["business_id"] = fmt.Sprintf("%d", business.ID)
 		hook.Upload.MetaData["username"] = username
-
 		return nil
 	}
 
@@ -343,6 +354,20 @@ func initTusHandler(_ *config.Config) (*tusd.UnroutedHandler, error) {
 			"size":        hook.Upload.Size,
 			"created_at":  time.Now().UTC().Format(time.RFC3339),
 		}
+		if fn, ok := meta["filename"]; ok && fn != "" {
+			fields["filename"] = fn
+			src := filepath.Join("./uploads_data", id)
+			dst := filepath.Join("./uploads_data", fn)
+			if _, err := os.Stat(src); err == nil {
+				if err := os.Rename(src, dst); err != nil {
+					in, _ := os.Open(src)
+					out, _ := os.Create(dst)
+					io.Copy(out, in)
+					in.Close()
+					out.Close()
+				}
+			}
+		}
 		_ = db.RDB.HSet(db.Ctx, uploadKey, fields)
 		_ = db.RDB.Expire(db.Ctx, uploadKey, 24*time.Hour)
 		return nil
@@ -353,7 +378,6 @@ func initTusHandler(_ *config.Config) (*tusd.UnroutedHandler, error) {
 		return nil, err
 	}
 
-	// Start goroutine for logging progress with a CLI progress bar
 	go func() {
 		for {
 			select {
