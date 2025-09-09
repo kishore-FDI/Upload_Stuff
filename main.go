@@ -33,7 +33,7 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("Starting Media Pipeline API server on port %s", port)
+	log.Printf("Starting Media Pipeline API server on port okay %s", port)
 	if err := r.Run(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
