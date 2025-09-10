@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"mediapipeline/internal/db"
 	"mediapipeline/internal/middleware"
 	"net/http"
@@ -41,4 +42,51 @@ func registerBusinessHandler(c *gin.Context) {
 	})
 }
 
+func listBusinessUploadsHandler(c *gin.Context) {
+	apiKey := c.GetHeader("X-API-KEY")
+	if apiKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing X-API-KEY header"})
+		return
+	}
 
+	business, err := db.GetBusinessByAPIKey(apiKey)
+	if err != nil || business == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid api key"})
+		return
+	}
+
+	username := c.Query("username")
+	pattern := "upload:*"
+	keys, err := db.RDB.Keys(db.Ctx, pattern).Result()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to scan uploads"})
+		return
+	}
+
+	var uploads []gin.H
+	for _, key := range keys {
+		uploadData, err := db.RDB.HGetAll(db.Ctx, key).Result()
+		if err != nil || len(uploadData) == 0 {
+			continue
+		}
+		if uploadData["business_id"] != fmt.Sprintf("%d", business.ID) {
+			continue
+		}
+		if username != "" && uploadData["username"] != username {
+			continue
+		}
+		token := key[7:]
+		uploads = append(uploads, gin.H{
+			"token":      token,
+			"username":   uploadData["username"],
+			"status":     uploadData["status"],
+			"created_at": uploadData["created_at"],
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"business_id": business.ID,
+		"uploads":     uploads,
+		"count":       len(uploads),
+	})
+}
