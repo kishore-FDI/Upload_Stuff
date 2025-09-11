@@ -193,6 +193,16 @@ func initTusHandler(_ *config.Config) (*tusd.UnroutedHandler, error) {
 				}
 				_ = db.RDB.HSet(db.Ctx, uploadKey, fields)
 
+				// Broadcast a final 100% progress frame to ensure clients see the last chunk
+				GetConnectionManager().BroadcastProgress(info.Upload.ID, ProgressMessage{
+					Type:      "progress",
+					UploadID:  info.Upload.ID,
+					Progress:  100.0,
+					BytesSent: info.Upload.Size,
+					TotalSize: info.Upload.Size,
+					Status:    "uploading",
+				})
+
 				// Broadcast completion event
 				GetConnectionManager().BroadcastProgress(info.Upload.ID, ProgressMessage{
 					Type:      "complete",

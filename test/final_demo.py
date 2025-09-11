@@ -16,7 +16,7 @@ from tusclient import client
 BASE_URL = "http://localhost:8080"
 WS_URL = "ws://localhost:8080/api/v1/ws/"
 TUS_ENDPOINT = "http://localhost:8080/api/v1/uploads/"
-FILE_PATH = "test.mp4"
+FILE_PATH = "test/test.mp4"
 DOWNLOAD_DIR = "test/downloads"
 
 HEADERS = {
@@ -66,81 +66,79 @@ async def track_progress(upload_id, tracker):
             tracker.connected = True
             print("✅ WebSocket connected!")
             
-            # Set a timeout for receiving messages
-            try:
-                async with asyncio.timeout(15):  # 15 second timeout
-                    async for message in websocket:
-                        tracker.messages_received += 1
-                        try:
-                            data = json.loads(message)
-                            msg_type = data.get("type", "unknown")
-                            
-                            if msg_type == "connected":
-                                print(f"🎯 Connected to upload: {data.get('upload_id')}")
-                            elif msg_type == "created":
-                                print(f"📁 Upload created: {data.get('upload_id')}")
-                                print(f"   Size: {data.get('total_size', 0):,} bytes")
-                            elif msg_type == "progress":
-                                progress = data.get("progress", 0.0)
-                                bytes_sent = data.get("bytes_sent", 0)
-                                total_size = data.get("total_size", 0)
-                                tracker.update_progress(progress, bytes_sent, total_size)
-                            elif msg_type == "complete":
-                                print(f"\n✅ Upload completed: {data.get('upload_id')}")
-                                print(f"   Final size: {data.get('total_size', 0):,} bytes")
-                                tracker.status = "completed"
-                                break
-                            elif msg_type == "error":
-                                print(f"\n❌ Upload error: {data.get('message', 'Unknown error')}")
-                                tracker.status = "error"
-                                break
-                            else:
-                                print(f"\n📨 Message: {data}")
-                                
-                        except json.JSONDecodeError:
-                            print(f"📨 Raw message: {message}")
-            except asyncio.TimeoutError:
-                print(f"\n⏰ WebSocket timeout - no progress messages received")
-                tracker.status = "timeout"
+            # Receive progress messages
+            async for message in websocket:
+                tracker.messages_received += 1
+                try:
+                    data = json.loads(message)
+                    msg_type = data.get("type", "unknown")
+
+                    if msg_type == "connected":
+                        print(f"🎯 Connected to upload: {data.get('upload_id')}")
+                    elif msg_type == "created":
+                        print(f"📁 Upload created: {data.get('upload_id')}")
+                        print(f"   Size: {data.get('total_size', 0):,} bytes")
+                    elif msg_type == "progress":
+                        progress = data.get("progress", 0.0)
+                        bytes_sent = data.get("bytes_sent", 0)
+                        total_size = data.get("total_size", 0)
+                        tracker.update_progress(progress, bytes_sent, total_size)
+                    elif msg_type == "complete":
+                        print(f"\n✅ Upload completed: {data.get('upload_id')}")
+                        total_size = data.get("total_size", 0)
+                        print(f"   Final size: {total_size:,} bytes")
+                        # Ensure final 100% is reflected even if no last progress frame
+                        tracker.update_progress(100.0, total_size, total_size)
+                        tracker.status = "completed"
+                        break
+                    elif msg_type == "error":
+                        print(f"\n❌ Upload error: {data.get('message', 'Unknown error')}")
+                        tracker.status = "error"
+                        break
+                    else:
+                        print(f"\n📨 Message: {data}")
+
+                except json.JSONDecodeError:
+                    print(f"📨 Raw message: {message}")
                     
     except Exception as e:
         print(f"❌ WebSocket error: {e}")
         tracker.status = "error"
 
-def upload_file():
-    """Upload file using TUS protocol"""
+def create_uploader():
+    """Create TUS resource and return (uploader, upload_id)."""
     print(f"🚀 Starting TUS upload of {FILE_PATH}")
-    
+
     if not os.path.exists(FILE_PATH):
         print(f"❌ File not found: {FILE_PATH}")
-        return None
-    
+        return None, None
+
     try:
         tus_client = client.TusClient(TUS_ENDPOINT, headers=HEADERS)
-        
+
         uploader = tus_client.uploader(
             FILE_PATH,
-            chunk_size=1024 * 1024,  # 1 MB chunks
+            chunk_size=256 * 1024,  # small first chunk to obtain URL quickly
             metadata={"filename": os.path.basename(FILE_PATH)},
         )
-        
+
         print(f"📏 File size: {uploader.get_file_size():,} bytes")
-        
-        # Start upload
-        uploader.upload()
-        
-        # Get upload ID from URL
+
+        # Send the first chunk to create the TUS resource and receive Location URL
+        # Note: tus-py-client exposes upload_chunk() for incremental sending
+        uploader.upload_chunk()
+
         if hasattr(uploader, 'url') and uploader.url:
             upload_id = uploader.url.split("/")[-1]
             print(f"📋 Upload ID: {upload_id}")
-            return upload_id
+            return uploader, upload_id
         else:
-            print("❌ Could not get upload ID from TUS uploader")
-            return None
-            
+            print("❌ Could not get upload ID from TUS uploader after first chunk")
+            return None, None
+
     except Exception as e:
-        print(f"❌ Upload error: {e}")
-        return None
+        print(f"❌ Upload error during create: {e}")
+        return None, None
 
 def download_file(filename):
     """Download file using storage API"""
@@ -182,23 +180,34 @@ async def main():
     # Create progress tracker
     tracker = ProgressTracker()
     
-    # Step 1: Upload file
-    upload_id = upload_file()
-    if not upload_id:
-        print("❌ Failed to upload file. Exiting.")
+    # Step 1: Create TUS upload and obtain upload_id
+    uploader, upload_id = create_uploader()
+    if not uploader or not upload_id:
+        print("❌ Failed to create upload. Exiting.")
         return
-    
-    # Step 2: Start WebSocket tracking
+
+    # Step 2: Start WebSocket tracking immediately
     print(f"\n🔌 Starting progress tracking...")
+    progress_task = asyncio.create_task(track_progress(upload_id, tracker))
+
+    # Step 3: Stream the upload concurrently
+    loop = asyncio.get_running_loop()
+    try:
+        await loop.run_in_executor(None, uploader.upload)
+    except Exception as e:
+        print(f"❌ Upload error: {e}")
     
-    # Run WebSocket tracking
-    await track_progress(upload_id, tracker)
-    
-    # Step 3: Download the file
+    # Wait for websocket to see completion (with a soft timeout)
+    try:
+        await asyncio.wait_for(progress_task, timeout=120)
+    except asyncio.TimeoutError:
+        print("\n⏰ WebSocket tracking timed out waiting for completion event")
+
+    # Step 4: Download the file
     filename = os.path.basename(FILE_PATH)
     downloaded_file = download_file(filename)
     
-    # Step 4: Summary
+    # Step 5: Summary
     print(f"\n📋 Final Demo Summary:")
     print(f"   Upload ID: {upload_id}")
     print(f"   File: {FILE_PATH}")
