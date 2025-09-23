@@ -10,3 +10,11 @@ type ProgressMessage struct {
 	Status    string  `json:"status"` // "uploading", "completed", "failed", "created"
 	Message   string  `json:"message,omitempty"`
 }
+
+// StorageMigrationPolicy controls movement between S3 (warm) and R2 (cold)
+type StorageMigrationPolicy struct {
+	// PromoteToS3 if accessed at least N times in the last window
+	PromoteMinAccesses int
+	// DemoteToR2 if not accessed for this many hours
+	DemoteIdleHours int
+}

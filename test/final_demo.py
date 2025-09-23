@@ -16,7 +16,7 @@ from tusclient import client
 BASE_URL = "http://localhost:8080"
 WS_URL = "ws://localhost:8080/api/v1/ws/"
 TUS_ENDPOINT = "http://localhost:8080/api/v1/uploads/"
-FILE_PATH = "test/test.mp4"
+FILE_PATH = "test/testco.mp4"
 DOWNLOAD_DIR = "test/downloads"
 
 HEADERS = {

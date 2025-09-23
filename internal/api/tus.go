@@ -14,6 +14,7 @@ import (
 	"mediapipeline/internal/config"
 	"mediapipeline/internal/db"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/tus/tusd/pkg/filestore"
 	tusd "github.com/tus/tusd/pkg/handler"
 	"github.com/tus/tusd/pkg/memorylocker"
@@ -34,7 +35,7 @@ func readTusInfo(id string) (*tusd.FileInfo, error) {
 }
 
 // initialize tusd handler
-func initTusHandler(_ *config.Config) (*tusd.UnroutedHandler, error) {
+func initTusHandler(cfg *config.Config) (*tusd.UnroutedHandler, error) {
 	uploadDir := "./uploads_data"
 	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create upload dir: %w", err)
@@ -89,20 +90,54 @@ func initTusHandler(_ *config.Config) (*tusd.UnroutedHandler, error) {
 			"size":        hook.Upload.Size,
 			"created_at":  time.Now().UTC().Format(time.RFC3339),
 		}
+		filename := id
 		if fn, ok := meta["filename"]; ok && fn != "" {
 			fields["filename"] = fn
-			src := filepath.Join("./uploads_data", id)
-			dst := filepath.Join("./uploads_data", fn)
-			if _, err := os.Stat(src); err == nil {
-				if err := os.Rename(src, dst); err != nil {
-					in, _ := os.Open(src)
-					out, _ := os.Create(dst)
-					io.Copy(out, in)
-					in.Close()
-					out.Close()
-				}
+			filename = fn
+		}
+
+		// Ensure R2 directory exists (cold storage dir)
+		r2Dir := cfg.Storage.R2Path
+		if r2Dir == "" {
+			r2Dir = "./storage/r2"
+		}
+		_ = os.MkdirAll(r2Dir, 0o755)
+
+		// Move final file into R2 path
+		src := filepath.Join("./uploads_data", id)
+		alt := filepath.Join("./uploads_data", filename)
+		if _, err := os.Stat(alt); err == nil {
+			src = alt
+		}
+		dst := filepath.Join(r2Dir, filename)
+		if _, err := os.Stat(src); err == nil {
+			if err := os.Rename(src, dst); err != nil {
+				in, _ := os.Open(src)
+				out, _ := os.Create(dst)
+				io.Copy(out, in)
+				in.Close()
+				out.Close()
+				_ = os.Remove(src)
 			}
 		}
+
+		// Register file in SQLite as R2 tier
+		if db.SQLDB != nil {
+			_, _ = db.SQLDB.Exec(
+				`INSERT OR REPLACE INTO files (id, business_id, filename, size_bytes, storage_tier, path, access_count, last_accessed_at, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, 'R2', ?, COALESCE((SELECT access_count FROM files WHERE id = ?), 0), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+				id, meta["business_id"], filename, hook.Upload.Size, dst, id,
+			)
+		}
+
+		// Push candidate to Redis stream so the migrator can evaluate immediately/idempotently
+		_ = db.RDB.XAdd(db.Ctx, &redis.XAddArgs{
+			Stream: "migration_candidates",
+			MaxLen: 10000,
+			Approx: true,
+			ID:     "*",
+			Values: map[string]interface{}{"file_id": id, "ts": time.Now().UnixMilli()},
+		}).Err()
 		_ = db.RDB.HSet(db.Ctx, uploadKey, fields)
 		_ = db.RDB.Expire(db.Ctx, uploadKey, 24*time.Hour)
 		return nil
@@ -213,6 +248,9 @@ func initTusHandler(_ *config.Config) (*tusd.UnroutedHandler, error) {
 					Status:    "completed",
 					Message:   "Upload completed successfully",
 				})
+
+				// Notify external service (gRPC planned) with file ID
+				NotifyExternalUploadCompleted(info.Upload.ID)
 			}
 		}
 	}()

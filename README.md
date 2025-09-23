@@ -1,24 +1,18 @@
-<!-- Here’s your updated markdown incorporating **tiered latency simulation and caching**: -->
-
 ---
-
 # AI-Powered Content Moderation Pipeline
 
 ## Project Description
 
 Build a content moderation pipeline that:
+  - Moderates content using AI.
+  - Segregates storage based on access frequency:
+      - Frequently accessed → CDN (`./storage/cdn`)
+      - Moderately accessed → S3 (`./storage/s3`) with simulated latency
+      - Rarely accessed → Cloudflare R2 (`./storage/r2`) with higher simulated latency
 
-- Moderates content using AI.
-- Segregates storage based on access frequency:
-
-  - Frequently accessed → CDN (`./storage/cdn`)
-  - Moderately accessed → S3 (`./storage/s3`) with simulated latency
-  - Rarely accessed → Cloudflare R2 (`./storage/r2`) with higher simulated latency
-
-- Provides real-time upload progress via socket or webhook.
-- Supports resumable uploads after interruptions.
-- Simulates cloud infrastructure locally, including caching and tiered performance.
-
+  - Provides real-time upload progress via socket or webhook.
+  - Supports resumable uploads after interruptions.
+  - Simulates cloud infrastructure locally, including caching and tiered performance.
 ---
 
 ## Tech Stack

@@ -43,6 +43,32 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# Start or reuse RabbitMQ
+# $rabbitContainer = docker ps -q -f name=mediapipeline-rabbit
+# if (-not $rabbitContainer) {
+#     $stoppedRabbit = docker ps -aq -f name=mediapipeline-rabbit
+#     if ($stoppedRabbit) {
+#         docker start $stoppedRabbit | Out-Null
+#     } else {
+#         docker run -d --name mediapipeline-rabbit `
+#             -p 6400:6400 `
+#             -e RABBITMQ_DEFAULT_USER=admin `
+#             -e RABBITMQ_DEFAULT_PASS=secret `
+#             rabbitmq:3-management | Out-Null
+#     }
+# }
+
+# # Wait for RabbitMQ
+# for ($i = 0; $i -lt 30; $i++) {
+#     docker exec mediapipeline-rabbit rabbitmqctl status | Out-Null
+#     if ($LASTEXITCODE -eq 0) { break }
+#     Start-Sleep -Seconds 1
+# }
+# if ($LASTEXITCODE -ne 0) {
+#     Write-Host "RabbitMQ failed to start" -ForegroundColor Red
+#     exit 1
+# }
+
 # Check Go
 go version | Out-Null
 if ($LASTEXITCODE -ne 0) {

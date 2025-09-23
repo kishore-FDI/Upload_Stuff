@@ -24,6 +24,12 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
+	// Start background storage migrator (SQLite-based policy)
+	api.StartStorageMigrator(cfg, api.StorageMigrationPolicy{
+		PromoteMinAccesses: 5,  // >= 5 accesses in last 24h -> S3
+		DemoteIdleHours:    24, // idle for 24h -> R2
+	})
+
 	r := gin.Default()
 
 	api.SetupRoutes(r, cfg)
@@ -38,4 +44,3 @@ func main() {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
-

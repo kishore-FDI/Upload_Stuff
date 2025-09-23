@@ -42,10 +42,38 @@ func CreateBusiness(name, email string) (*Business, error) {
 
 // GetBusinessByAPIKey fetches a business by its API key
 func GetBusinessByAPIKey(apiKey string) (*Business, error) {
-    row := SQLDB.QueryRow("SELECT id, name, email, api_key, created_at FROM business WHERE api_key = ?", apiKey)
-    b := &Business{}
-    if err := row.Scan(&b.ID, &b.Name, &b.Email, &b.APIKey, &b.CreatedAt); err != nil {
-        return nil, err
-    }
-    return b, nil
+	row := SQLDB.QueryRow("SELECT id, name, email, api_key, created_at FROM business WHERE api_key = ?", apiKey)
+	b := &Business{}
+	if err := row.Scan(&b.ID, &b.Name, &b.Email, &b.APIKey, &b.CreatedAt); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// LinkFileToAPIKey inserts a mapping between a business api_key and a file_id
+func LinkFileToAPIKey(apiKey string, fileID string) error {
+	_, err := SQLDB.Exec("INSERT OR IGNORE INTO business_files (api_key, file_id) VALUES (?, ?)", apiKey, fileID)
+	return err
+}
+
+// ListFileIDsByAPIKey returns file ids associated with an api_key
+func ListFileIDsByAPIKey(apiKey string) ([]string, error) {
+	rows, err := SQLDB.Query("SELECT file_id FROM business_files WHERE api_key = ? ORDER BY created_at DESC", apiKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
