@@ -11,7 +11,8 @@ import (
 var Rdb *redis.Client
 var Ctx = context.Background()
 
-func InitRedis(cfg *config.Config) {
+func InitRedis() {
+	cfg := config.GetConfig()
 	addr := cfg.Redis.Host+":"+cfg.Redis.Port
 	pass := cfg.Redis.Password
 	Rdb = redis.NewClient(&redis.Options{
