@@ -13,14 +13,17 @@ var Ctx = context.Background()
 
 func InitRedis() {
 	cfg := config.GetConfig()
-	addr := cfg.Redis.Host+":"+cfg.Redis.Port
+	if cfg.Redis.Host == "" || cfg.Redis.Port == "" {
+		log.Fatal("Redis host or port not configured")
+	}
+	addr := cfg.Redis.Host + ":" + cfg.Redis.Port
 	pass := cfg.Redis.Password
 	Rdb = redis.NewClient(&redis.Options{
-		Addr:addr,
-		Password:pass,
-		DB:0,
+		Addr:     addr,
+		Password: pass,
+		DB:       0,
 	})
-	
+
 	if err := Rdb.Ping(Ctx).Err(); err != nil {
 		log.Fatalf("Failed to connect to Redis: %v", err)
 	}

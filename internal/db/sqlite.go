@@ -33,16 +33,16 @@ func InitSQLite() {
 	createRefreshTokens := `
 		CREATE TABLE IF NOT EXISTS refresh_tokens (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			username TEXT NOT NULL,
+			business_id INTEGER NOT NULL,
 			token TEXT NOT NULL,
 			expires_at DATETIME NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (business_id) REFERENCES business(id)
 		);
 	`
 	if _, err := SQLDB.Exec(createRefreshTokens); err != nil {
-		log.Fatalf("Failed to create business table: %v", err)
+		log.Fatalf("Failed to create refresh_tokens table: %v", err)
 	}
-
 	createAPIKeys := `
 		CREATE TABLE IF NOT EXISTS api_keys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,9 +53,8 @@ func InitSQLite() {
 		);
 	`
 	if _, err := SQLDB.Exec(createAPIKeys); err != nil {
-		log.Fatalf("Failed to create business table: %v", err)
+		log.Fatalf("Failed to create api_keys table: %v", err)
 	}
-
 	createFiles := `
 	CREATE TABLE IF NOT EXISTS files (
 		id TEXT PRIMARY KEY,
@@ -89,17 +88,17 @@ func InitSQLite() {
 		log.Fatalf("Failed to create file_access_log table: %v", err)
 	}
 
-	createBusinessFiles := `
+	createAPIKeyFiles := `
 	CREATE TABLE IF NOT EXISTS business_files (
 		api_key TEXT NOT NULL,
 		file_id TEXT NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (api_key, file_id),
-		FOREIGN KEY (api_key) REFERENCES business(api_key),
+		FOREIGN KEY (api_key) REFERENCES api_keys(key),
 		FOREIGN KEY (file_id) REFERENCES files(id)
 	);
 	`
-	if _, err := SQLDB.Exec(createBusinessFiles); err != nil {
+	if _, err := SQLDB.Exec(createAPIKeyFiles); err != nil {
 		log.Fatalf("Failed to create business_files table: %v", err)
 	}
 

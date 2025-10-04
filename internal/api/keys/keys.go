@@ -25,6 +25,7 @@ func CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 
 	if !ok {
 		http.Error(w, "Failed to find the ID of the Registered Business", http.StatusInternalServerError)
+		return
 	}
 
 	apiKey, err := generateRandomAPIKey()
@@ -60,6 +61,7 @@ func ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 
 	if !ok {
 		http.Error(w, "Failed to find the ID of the Registered Business", http.StatusInternalServerError)
+		return
 	}
 
 	rows, err := db.SQLDB.Query(
@@ -93,7 +95,15 @@ func ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 // DeleteAPIKey deletes a specific API key for the authenticated business
-func DeleteAPIKey(w http.ResponseWriter, r *http.Request, keyID int) {
+func DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
+	keys, ok := r.URL.Query()["id"]
+	if !ok || len(keys[0]) < 1 {
+		http.Error(w, "Missing key ID", http.StatusBadRequest)
+		return
+	}
+
+	var keyID int
+	fmt.Sscan(keys[0], &keyID)
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
@@ -103,6 +113,7 @@ func DeleteAPIKey(w http.ResponseWriter, r *http.Request, keyID int) {
 
 	if !ok {
 		http.Error(w, "Failed to find the ID of the Registered Business", http.StatusInternalServerError)
+		return
 	}
 
 	res, err := db.SQLDB.Exec(

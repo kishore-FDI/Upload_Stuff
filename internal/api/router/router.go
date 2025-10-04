@@ -20,10 +20,12 @@ func NewRouter() *Router {
 }
 
 func (r *Router) Group(prefix string) *Router {
+	mws := make([]Middleware, len(r.middlewares))
+	copy(mws, r.middlewares)
 	return &Router{
 		prefix:      r.prefix + prefix,
 		mux:         r.mux,
-		middlewares: r.middlewares, // inherit parent middlewares
+		middlewares: mws,
 	}
 }
 

@@ -56,15 +56,8 @@ func SetUpRoutes(routes *router.Router) {
 			apikeys.ListAPIKeys(w, r)
 		})
 		apiKeyRoutes.HandleFunc("/delete", func(w http.ResponseWriter, r *http.Request) {
-			keys, ok := r.URL.Query()["id"]
-			if !ok || len(keys[0]) < 1 {
-				http.Error(w, "Missing key ID", http.StatusBadRequest)
-				return
-			}
 
-			var keyID int
-			fmt.Sscan(keys[0], &keyID)
-			apikeys.DeleteAPIKey(w, r, keyID)
+			apikeys.DeleteAPIKey(w, r)
 		})
 	}
 }

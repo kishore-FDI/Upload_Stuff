@@ -4,6 +4,8 @@ import (
 	"mediapipeline/internal/config"
 	"time"
 
+	"errors"
+
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -23,6 +25,9 @@ func checkPasswordHash(password, hash string) bool {
 
 func generateToken(businessID int, username string, duration time.Duration) (string, error) {
 	cfg := config.GetConfig()
+	if cfg.JWTSecret == "" {
+		return "", errors.New("JWT secret is not configured")
+	}
 
 	claims := &Claims{
 		BusinessID: businessID,
