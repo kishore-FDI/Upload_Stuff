@@ -1,93 +1,31 @@
-# start-dev.ps1
-# Start Docker Redis and Go server for Media Pipeline
+# ASCII banner "Go Server"
+$asciiBanner = @'
+   ____       ____                          
+  / ___| ___ / ___|  ___ _ ____   _____ _ __ 
+ | |  _ / _ \ |  _ / _ \ '__\ \ / / _ \ '__|
+ | |_| | (_) | |_| |  __/ |   \ V /  __/ |   
+  \____|\___/ \____|\___|_|    \_/ \___|_|   
+'@
 
-# Launch Docker Desktop (if not already running)
-if (-not (Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue)) {
-    Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
-    Write-Host "Starting Docker Desktop..."
-    Start-Sleep -Seconds 10  # give it time to come up
-}
+# ASCII Gopher
+$gopher = @'
+     ,_---~~~~~----._
+  _,,_,*^____      _____``*g*"*,
+ / __/ /'     ^.  /      \ ^@q f
+[  @f | @))    |  | @))   l  0 _/
+ \`/   \~____ / __ \~___/    \
+  |           _l__l_           I
+  }          [______]           I
+  ]            | | |            |
+  ]             ~ ~             |
+  |                            |
+   \                          /
+'@
 
-# Launch Postman (optional, adjust path if installed differently)
-if (-not (Get-Process -Name "Postman" -ErrorAction SilentlyContinue)) {
-    Start-Process "C:\Users\kisho\AppData\Local\Postman\Postman.exe"
-    Write-Host "Starting Postman..."
-}
+# Print in Cyan
+Write-Host $asciiBanner -ForegroundColor Cyan
+# Write-Host $gopher -ForegroundColor Cyan
+Write-Host "Starting the Go Server..." -ForegroundColor Cyan
 
-# Check Docker
-docker version | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Docker not running" -ForegroundColor Red
-    exit 1
-}
-
-# Start or reuse Redis
-$redisContainer = docker ps -q -f name=mediapipeline-redis
-if (-not $redisContainer) {
-    $stoppedContainer = docker ps -aq -f name=mediapipeline-redis
-    if ($stoppedContainer) {
-        docker start $stoppedContainer | Out-Null
-    } else {
-        docker run -d --name mediapipeline-redis -p 6379:6379 redis:7-alpine redis-server --appendonly yes | Out-Null
-    }
-}
-
-# Wait for Redis
-for ($i = 0; $i -lt 30; $i++) {
-    docker exec mediapipeline-redis redis-cli ping | Out-Null
-    if ($LASTEXITCODE -eq 0) { break }
-    Start-Sleep -Seconds 1
-}
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Redis failed to start" -ForegroundColor Red
-    exit 1
-}
-
-# Start or reuse RabbitMQ
-# $rabbitContainer = docker ps -q -f name=mediapipeline-rabbit
-# if (-not $rabbitContainer) {
-#     $stoppedRabbit = docker ps -aq -f name=mediapipeline-rabbit
-#     if ($stoppedRabbit) {
-#         docker start $stoppedRabbit | Out-Null
-#     } else {
-#         docker run -d --name mediapipeline-rabbit `
-#             -p 6400:6400 `
-#             -e RABBITMQ_DEFAULT_USER=admin `
-#             -e RABBITMQ_DEFAULT_PASS=secret `
-#             rabbitmq:3-management | Out-Null
-#     }
-# }
-
-# # Wait for RabbitMQ
-# for ($i = 0; $i -lt 30; $i++) {
-#     docker exec mediapipeline-rabbit rabbitmqctl status | Out-Null
-#     if ($LASTEXITCODE -eq 0) { break }
-#     Start-Sleep -Seconds 1
-# }
-# if ($LASTEXITCODE -ne 0) {
-#     Write-Host "RabbitMQ failed to start" -ForegroundColor Red
-#     exit 1
-# }
-
-# Check Go
-go version | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Go not installed" -ForegroundColor Red
-    exit 1
-}
-
-# Install deps
-go mod tidy
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Failed to install Go dependencies" -ForegroundColor Red
-    exit 1
-}
-
-# Env vars
-$env:REDIS_HOST = "localhost"
-$env:REDIS_PORT = "6379"
-$env:ENVIRONMENT = "development"
-$env:PORT = "8080"
-
-# Start server
+# Run the Go server
 go run main.go

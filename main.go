@@ -1,46 +1,40 @@
 package main
 
 import (
+	"fmt"
 	"log"
-	"os"
-
 	"mediapipeline/internal/api"
+	"mediapipeline/internal/api/router"
 	"mediapipeline/internal/config"
 	"mediapipeline/internal/db"
+	"mediapipeline/internal/middleware"
 
-	"github.com/gin-gonic/gin"
+	"net/http"
 )
 
 func main() {
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+	// Loading Config
+	cfg := config.InitConfig()
+	if cfg.JWTSecret == "" {
+		log.Println("JWTSecret is empty!")
+		panic("")
+	} else {
+		log.Println(config.GetConfig().JWTSecret)
 	}
 
-	// Init Redis and SQLite
+	// Initializing the databases
 	db.InitRedis()
 	db.InitSQLite()
-	if cfg.Environment == "production" {
-		gin.SetMode(gin.ReleaseMode)
-	}
 
-	// Start background storage migrator (SQLite-based policy)
-	api.StartStorageMigrator(cfg, api.StorageMigrationPolicy{
-		PromoteMinAccesses: 5,  // >= 5 accesses in last 24h -> S3
-		DemoteIdleHours:    24, // idle for 24h -> R2
-	})
+	// setting up the routes
+	mux := router.NewRouter()
+	api.SetUpRoutes(mux)
 
-	r := gin.Default()
+	// middleware for logging
+	server := middleware.Logging(mux)
 
-	api.SetupRoutes(r, cfg)
+	// Starting the server
+	fmt.Println("Server starting on :", cfg.Port)
+	log.Fatal(http.ListenAndServe(":"+cfg.Port, server))
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	log.Printf("Starting Media Pipeline API server on port okay %s", port)
-	if err := r.Run(":" + port); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
-	}
 }

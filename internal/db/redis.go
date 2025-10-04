@@ -3,34 +3,30 @@ package db
 import (
 	"context"
 	"log"
-	"os"
+	"mediapipeline/internal/config"
 
 	"github.com/redis/go-redis/v9"
 )
 
-var (
-	RDB *redis.Client
-	Ctx = context.Background()
-)
+var Rdb *redis.Client
+var Ctx = context.Background()
 
 func InitRedis() {
-	addr := os.Getenv("REDIS_ADDR")
-	if addr == "" {
-		addr = "localhost:6379"
+	cfg := config.GetConfig()
+	if cfg.Redis.Host == "" || cfg.Redis.Port == "" {
+		log.Fatal("Redis host or port not configured")
 	}
-
-	password := os.Getenv("REDIS_PASSWORD") // leave empty if none
-
-	RDB = redis.NewClient(&redis.Options{
+	addr := cfg.Redis.Host + ":" + cfg.Redis.Port
+	pass := cfg.Redis.Password
+	Rdb = redis.NewClient(&redis.Options{
 		Addr:     addr,
-		Password: password,
+		Password: pass,
 		DB:       0,
 	})
 
-	if err := RDB.Ping(Ctx).Err(); err != nil {
+	if err := Rdb.Ping(Ctx).Err(); err != nil {
 		log.Fatalf("Failed to connect to Redis: %v", err)
 	}
 
 	log.Println("Connected to Redis")
 }
-

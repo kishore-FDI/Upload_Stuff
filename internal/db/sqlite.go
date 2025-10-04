@@ -1,3 +1,4 @@
+// TO-DO Review the tables later
 package db
 
 import (
@@ -17,18 +18,43 @@ func InitSQLite() {
 	}
 
 	createTable := `
-	CREATE TABLE IF NOT EXISTS business (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL,
-		email TEXT NOT NULL UNIQUE,
-		api_key TEXT NOT NULL UNIQUE,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
+		CREATE TABLE IF NOT EXISTS business (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			email TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
 	`
 	if _, err := SQLDB.Exec(createTable); err != nil {
 		log.Fatalf("Failed to create business table: %v", err)
 	}
 
+	createRefreshTokens := `
+		CREATE TABLE IF NOT EXISTS refresh_tokens (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			business_id INTEGER NOT NULL,
+			token TEXT NOT NULL,
+			expires_at DATETIME NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (business_id) REFERENCES business(id)
+		);
+	`
+	if _, err := SQLDB.Exec(createRefreshTokens); err != nil {
+		log.Fatalf("Failed to create refresh_tokens table: %v", err)
+	}
+	createAPIKeys := `
+		CREATE TABLE IF NOT EXISTS api_keys (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			business_id INTEGER NOT NULL,
+			key TEXT NOT NULL UNIQUE,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (business_id) REFERENCES business(id)
+		);
+	`
+	if _, err := SQLDB.Exec(createAPIKeys); err != nil {
+		log.Fatalf("Failed to create api_keys table: %v", err)
+	}
 	createFiles := `
 	CREATE TABLE IF NOT EXISTS files (
 		id TEXT PRIMARY KEY,
@@ -62,17 +88,17 @@ func InitSQLite() {
 		log.Fatalf("Failed to create file_access_log table: %v", err)
 	}
 
-	createBusinessFiles := `
+	createAPIKeyFiles := `
 	CREATE TABLE IF NOT EXISTS business_files (
 		api_key TEXT NOT NULL,
 		file_id TEXT NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (api_key, file_id),
-		FOREIGN KEY (api_key) REFERENCES business(api_key),
+		FOREIGN KEY (api_key) REFERENCES api_keys(key),
 		FOREIGN KEY (file_id) REFERENCES files(id)
 	);
 	`
-	if _, err := SQLDB.Exec(createBusinessFiles); err != nil {
+	if _, err := SQLDB.Exec(createAPIKeyFiles); err != nil {
 		log.Fatalf("Failed to create business_files table: %v", err)
 	}
 
